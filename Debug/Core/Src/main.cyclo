@@ -1,0 +1,10 @@
+../Core/Src/main.c:76:5:main	1
+../Core/Src/main.c:136:6:SystemClock_Config	3
+../Core/Src/main.c:184:13:MX_SPI1_Init	2
+../Core/Src/main.c:222:13:MX_TIM3_Init	4
+../Core/Src/main.c:271:13:MX_USART2_UART_Init	2
+../Core/Src/main.c:304:13:MX_GPIO_Init	1
+../Core/Src/main.c:361:6:MyFlagInterruptHandler	3
+../Core/Src/main.c:470:6:MyBusyInterruptHandler	1
+../Core/Src/main.c:484:6:MyErrorHandler	1
+../Core/Src/main.c:500:6:Error_Handler	1

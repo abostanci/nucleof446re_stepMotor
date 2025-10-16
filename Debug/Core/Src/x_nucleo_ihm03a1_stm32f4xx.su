@@ -1,0 +1,13 @@
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:95:6:Powerstep01_Board_Delay	16	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:104:6:Powerstep01_Board_DisableIrq	4	static,ignoring_inline_asm
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:113:6:Powerstep01_Board_EnableIrq	4	static,ignoring_inline_asm
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:123:6:Powerstep01_Board_GpioInit	48	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:188:6:Powerstep01_Board_StepClockInit	64	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:221:6:Powerstep01_Board_StartStepClock	24	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:235:6:Powerstep01_Board_StopStepClock	8	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:245:6:Powerstep01_Board_ReleaseReset	16	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:255:6:Powerstep01_Board_Reset	16	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:264:9:Powerstep01_Board_SpiInit	16	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:294:9:Powerstep01_Board_SpiWriteBytes	40	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:318:10:Powerstep01_Board_BUSY_PIN_GetState	8	static
+../Core/Src/x_nucleo_ihm03a1_stm32f4xx.c:327:10:Powerstep01_Board_FLAG_PIN_GetState	8	static
