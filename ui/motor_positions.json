@@ -1,0 +1,102 @@
+{
+  "P1": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P2": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P3": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P4": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P5": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P6": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P7": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P8": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P9": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P10": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P11": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P12": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P13": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P14": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P15": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P16": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P17": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P18": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P19": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P20": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P21": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P22": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P23": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "P24": {
+    "motor0": 0,
+    "motor1": 0
+  },
+  "Home": {
+    "motor0": 15,
+    "motor1": 200
+  }
+}
