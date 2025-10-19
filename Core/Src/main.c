@@ -24,6 +24,8 @@
 #include "x_nucleo_ihmxx.h"
 #include "x_nucleo_ihm03a1_stm32f4xx.h"
 #include "powerstep01.h"
+#include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,7 +35,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define RX_BUFFER_SIZE 128
+#define TX_BUFFER_SIZE 128
+#define MAX_MOTOR_STEPS 10000L  // Define maximum allowed steps
+#define MIN_MOTOR_STEPS -10000L // Define minimum allowed steps
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,6 +55,16 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 static volatile uint16_t gLastError;
+static uint8_t rx_buffer[RX_BUFFER_SIZE];
+static uint8_t tx_buffer[TX_BUFFER_SIZE];
+static volatile uint32_t rx_index = 0;
+static volatile uint8_t command_ready = 0;
+
+static volatile int32_t motor0_target = 0;
+static volatile int32_t motor1_target = 0;
+static uint8_t uart_rx_byte;
+static uint8_t command_buffer[RX_BUFFER_SIZE];
+static volatile uint32_t cmd_index = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,6 +77,13 @@ static void MX_TIM3_Init(void);
 static void MyBusyInterruptHandler(void);
 static void MyFlagInterruptHandler(void);
 static void MyErrorHandler(uint16_t error);
+
+static void UART_SendString(const char *str);
+static void UART_ReceiveChar(uint8_t ch);
+static void ParseCommand(void);
+static void SendMotorStatus(uint8_t motor_id);
+static void SendError(uint8_t motor_id, const char *error_type, const char *description);
+static void MoveMotorsToPosition(int32_t motor0_pos, int32_t motor1_pos);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -77,12 +99,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	int32_t pos;
-	uint32_t myMaxSpeed;
-	uint32_t myMinSpeed;
-	uint16_t myAcceleration;
-	uint16_t myDeceleration;
-	uint32_t readData;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -115,6 +131,9 @@ int main(void)
   BSP_MotorControl_AttachErrorHandler(MyErrorHandler);
   BSP_MotorControl_CmdResetPos(0);
   BSP_MotorControl_CmdResetPos(1);
+  HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
+
+  UART_SendString("SYSTEM,READY\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -123,7 +142,20 @@ int main(void)
   {
 
     /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
+	  if (command_ready)
+	      {
+	        command_ready = 0;
+	        ParseCommand();
+	      }
+
+	      // Check motor status
+	      SendMotorStatus(0);
+	      SendMotorStatus(1);
+
+	      HAL_Delay(1000);
+
 
   }
   /* USER CODE END 3 */
@@ -358,137 +390,243 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void MyFlagInterruptHandler(void)
+void UART_SendString(const char *str)
 {
-  /* Get the value of the status register via the command GET_STATUS */
-  uint16_t statusRegister = BSP_MotorControl_CmdGetStatus(0);
+  HAL_UART_Transmit(&huart2, (uint8_t *)str, strlen(str), 100);
+}
 
-  /* Check HIZ flag: if set, power brigdes are disabled */
+void UART_ReceiveChar(uint8_t ch)
+{
+  // Check for buffer overflow BEFORE writing
+  if (cmd_index >= RX_BUFFER_SIZE - 1)
+  {
+    // Buffer full - reset and report error
+    cmd_index = 0;
+    SendError(0, "BUFFER_OVERFLOW", "Command too long");
+    return;
+  }
+
+  if (ch == '\n' || ch == '\r')
+  {
+    if (cmd_index > 0)  // Only process if we have data
+    {
+      command_buffer[cmd_index] = '\0';
+      // Copy to rx_buffer for processing
+      memcpy(rx_buffer, command_buffer, cmd_index + 1);
+      command_ready = 1;
+    }
+    cmd_index = 0;
+  }
+  else
+  {
+    command_buffer[cmd_index++] = ch;
+  }
+}
+
+void SendMotorStatus(uint8_t motor_id)
+{
+  uint16_t statusRegister = BSP_MotorControl_CmdGetStatus(motor_id);
+  int32_t position = BSP_MotorControl_GetPosition(motor_id);
+
+  // Extract status flags
+  uint8_t is_moving = ((statusRegister & POWERSTEP01_STATUS_BUSY) == 0) ? 1 : 0;
+  uint8_t has_error = 0;
+
+  // Check for any error conditions
+  if (((statusRegister & POWERSTEP01_STATUS_UVLO) == 0) ||
+      ((statusRegister & POWERSTEP01_STATUS_OCD) == 0) ||
+      ((statusRegister & POWERSTEP01_STATUS_STALL_A) == 0) ||
+      ((statusRegister & POWERSTEP01_STATUS_STALL_B) == 0) ||
+      (statusRegister & POWERSTEP01_STATUS_CMD_ERROR) ||
+      (statusRegister & POWERSTEP01_STATUS_TH_STATUS))
+  {
+    has_error = 1;
+  }
+
+  // Send compact status
+  snprintf((char *)tx_buffer, TX_BUFFER_SIZE,
+           "STATUS,%d,%ld,%d,%d,0x%04X\n",
+           motor_id, position, is_moving, has_error, statusRegister);
+  UART_SendString((const char *)tx_buffer);
+}
+
+void SendError(uint8_t motor_id, const char *error_type, const char *description)
+{
+  snprintf((char *)tx_buffer, TX_BUFFER_SIZE, "ERROR,%d,%s,%s\n", motor_id, error_type, description);
+  UART_SendString((const char *)tx_buffer);
+}
+
+void ParseCommand(void)
+{
+  char *cmd = (char *)rx_buffer;
+
+  // Ignore empty commands
+  if (strlen(cmd) == 0)
+  {
+    return;
+  }
+
+  // Debug: Echo back what was received (safely truncated)
+  snprintf((char *)tx_buffer, TX_BUFFER_SIZE, "DEBUG,RX:[%.20s]\n", cmd);
+  UART_SendString((const char *)tx_buffer);
+
+  if (strncmp(cmd, "MOVE", 4) == 0)
+  {
+    int32_t motor0_steps, motor1_steps;
+    if (sscanf(cmd, "MOVE,%ld,%ld", &motor0_steps, &motor1_steps) == 2)
+    {
+      // Validate step values
+      if (motor0_steps < MIN_MOTOR_STEPS || motor0_steps > MAX_MOTOR_STEPS ||
+          motor1_steps < MIN_MOTOR_STEPS || motor1_steps > MAX_MOTOR_STEPS)
+      {
+        SendError(0, "RANGE_ERROR", "Step value out of range");
+        return;
+      }
+
+      // Queue both motors
+      motor0_target = motor0_steps;
+      motor1_target = motor1_steps;
+      MoveMotorsToPosition(motor0_target, motor1_target);
+
+      // Send confirmation with actual values
+      snprintf((char *)tx_buffer, TX_BUFFER_SIZE, "OK,MOVE,%ld,%ld\n",
+               motor0_steps, motor1_steps);
+      UART_SendString((const char *)tx_buffer);
+    }
+    else
+    {
+      SendError(0, "PARSE_ERROR", "Invalid MOVE format");
+    }
+  }
+  else if (strncmp(cmd, "STOP", 4) == 0)
+  {
+    UART_SendString("OK,STOPPING\n");
+    BSP_MotorControl_CmdSoftStop(0);
+    BSP_MotorControl_CmdSoftStop(1);
+  }
+  else if (strncmp(cmd, "HOME", 4) == 0)
+  {
+    // Move to position 0,0
+    MoveMotorsToPosition(0, 0);
+    UART_SendString("OK,HOMING\n");
+  }
+  else if (strncmp(cmd, "STATUS", 6) == 0)
+  {
+    // Check for CLEAR flag
+    if (strstr(cmd, "CLEAR") != NULL)
+    {
+      BSP_MotorControl_CmdGetStatus(0); // Clear error flags
+      BSP_MotorControl_CmdGetStatus(1);
+      UART_SendString("OK,STATUS_CLEARED\n");
+    }
+    SendMotorStatus(0);
+    SendMotorStatus(1);
+  }
+  else if (strncmp(cmd, "RESET", 5) == 0)
+  {
+    BSP_MotorControl_CmdGetStatus(0); // Clear error flags
+    BSP_MotorControl_CmdGetStatus(1);
+    BSP_MotorControl_CmdResetPos(0);
+    BSP_MotorControl_CmdResetPos(1);
+    UART_SendString("OK,RESET_COMPLETE\n");
+  }
+  else
+  {
+    // Safely truncate unknown command in error message
+    snprintf((char *)tx_buffer, TX_BUFFER_SIZE, "ERROR,UNKNOWN,%.20s\n", cmd);
+    UART_SendString((const char *)tx_buffer);
+  }
+}
+
+void MoveMotorsToPosition(int32_t motor0_pos, int32_t motor1_pos)
+{
+	BSP_MotorControl_QueueCommands(0,POWERSTEP01_GO_TO, motor0_pos);
+	BSP_MotorControl_QueueCommands(1,POWERSTEP01_GO_TO, motor1_pos);
+	BSP_MotorControl_SendQueuedCommands();
+}
+
+void CheckMotorErrors(uint8_t motor_id)
+{
+  uint16_t statusRegister = BSP_MotorControl_CmdGetStatus(motor_id);
+
   if ((statusRegister & POWERSTEP01_STATUS_HIZ) == POWERSTEP01_STATUS_HIZ)
   {
-    // HIZ state
+    SendError(motor_id, "HIZ_STATE", "Power bridges disabled");
   }
 
-  /* Check BUSY flag: if not set, a command is under execution */
-  if ((statusRegister & POWERSTEP01_STATUS_BUSY) == 0)
-  {
-    // BUSY
-  }
-
-  /* Check SW_F flag: if not set, the SW input is opened */
-  if ((statusRegister & POWERSTEP01_STATUS_SW_F ) == 0)
-  {
-     // SW OPEN
-  }
-  else
-  {
-    // SW CLOSED
-  }
-  /* Check SW_EN bit */
-  if ((statusRegister & POWERSTEP01_STATUS_SW_EVN) == POWERSTEP01_STATUS_SW_EVN)
-  {
-    // switch turn_on event
-  }
-  /* Check direction bit */
-  if ((statusRegister & POWERSTEP01_STATUS_DIR) == 0)
-  {
-    // BACKWARD
-  }
-  else
-  {
-    // FORWARD
-  }
-  if ((statusRegister & POWERSTEP01_STATUS_MOT_STATUS) == POWERSTEP01_STATUS_MOT_STATUS_STOPPED )
-  {
-       // MOTOR STOPPED
-  }
-  else  if ((statusRegister & POWERSTEP01_STATUS_MOT_STATUS) == POWERSTEP01_STATUS_MOT_STATUS_ACCELERATION )
-  {
-           // MOTOR ACCELERATION
-  }
-  else  if ((statusRegister & POWERSTEP01_STATUS_MOT_STATUS) == POWERSTEP01_STATUS_MOT_STATUS_DECELERATION )
-  {
-           // MOTOR DECELERATION
-  }
-  else  if ((statusRegister & POWERSTEP01_STATUS_MOT_STATUS) == POWERSTEP01_STATUS_MOT_STATUS_CONST_SPD )
-  {
-       // MOTOR RUNNING AT CONSTANT SPEED
-  }
-
-  /* Check Command Error flag: if set, the command received by SPI can't be performed */
-  /* This often occures when a command is sent to the Powerstep01 */
-  /* while it is in HIZ state or it the sent command does not exist*/
   if ((statusRegister & POWERSTEP01_STATUS_CMD_ERROR) == POWERSTEP01_STATUS_CMD_ERROR)
   {
-       // Command Error
+    SendError(motor_id, "CMD_ERROR", "Command could not be performed");
   }
 
-  /* Check Step mode clock flag: if set, the device is working in step clock mode */
-  if ((statusRegister & POWERSTEP01_STATUS_STCK_MOD) == POWERSTEP01_STATUS_STCK_MOD)
-  {
-     //Step clock mode enabled
-  }
-
-  /* Check UVLO flag: if not set, there is an undervoltage lock-out */
   if ((statusRegister & POWERSTEP01_STATUS_UVLO) == 0)
   {
-     //undervoltage lock-out
+    SendError(motor_id, "UVLO", "Undervoltage lock-out");
   }
 
-  /* Check UVLO ADC flag: if not set, there is an ADC undervoltage lock-out */
   if ((statusRegister & POWERSTEP01_STATUS_UVLO_ADC) == 0)
   {
-     //ADC undervoltage lock-out
+    SendError(motor_id, "UVLO_ADC", "ADC undervoltage lock-out");
   }
 
-  /* Check thermal STATUS flags: if  set, the thermal status is not normal */
   if ((statusRegister & POWERSTEP01_STATUS_TH_STATUS) != 0)
   {
-    //thermal status: 1: Warning, 2: Bridge shutdown, 3: Device shutdown
+    SendError(motor_id, "THERMAL", "Thermal warning or shutdown");
   }
 
-  /* Check OCD  flag: if not set, there is an overcurrent detection */
   if ((statusRegister & POWERSTEP01_STATUS_OCD) == 0)
   {
-    //overcurrent detection
+    SendError(motor_id, "OCD", "Overcurrent detection");
   }
 
-  /* Check STALL_A flag: if not set, there is a Stall condition on bridge A */
   if ((statusRegister & POWERSTEP01_STATUS_STALL_A) == 0)
   {
-    //overcurrent detection
+    SendError(motor_id, "STALL_A", "Stall on bridge A");
   }
 
-  /* Check STALL_B flag: if not set, there is a Stall condition on bridge B */
   if ((statusRegister & POWERSTEP01_STATUS_STALL_B) == 0)
   {
-    //overcurrent detection
+    SendError(motor_id, "STALL_B", "Stall on bridge B");
   }
+}
 
+void MyFlagInterruptHandler(void)
+{
+  // Check errors for both motors
+  CheckMotorErrors(0);
+  CheckMotorErrors(1);
 }
 
 void MyBusyInterruptHandler(void)
 {
-
    if (BSP_MotorControl_CheckBusyHw())
    {
-      /* Busy pin is low, so at list one Powerstep01 chip is busy */
-     /* To be customized (for example Switch on a LED) */
+
    }
    else
    {
-     /* To be customized (for example Switch off a LED) */
+
    }
 }
 
 void MyErrorHandler(uint16_t error)
 {
-  /* Backup error number */
   gLastError = error;
+  snprintf((char *)tx_buffer, TX_BUFFER_SIZE, "ERROR,0,SYSTEM_ERROR,0x%04X\n", error);
+  UART_SendString((const char *)tx_buffer);
 
-  /* Infinite loop */
   while(1)
   {
+  }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2)
+  {
+    UART_ReceiveChar(uart_rx_byte);
+    // Re-enable interrupt for next byte
+    HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
   }
 }
 /* USER CODE END 4 */
