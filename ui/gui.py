@@ -169,7 +169,7 @@ class MotorControlGUI:
         interval_frame.pack(fill=tk.X, pady=10)
         
         ttk.Label(interval_frame, text="Status Update Interval (ms):").pack(side=tk.LEFT, padx=5)
-        self.status_interval_var = tk.IntVar(value=200)
+        self.status_interval_var = tk.IntVar(value=1000)
         interval_spinbox = ttk.Spinbox(interval_frame, from_=50, to=5000, increment=50, 
                                        textvariable=self.status_interval_var, width=10)
         interval_spinbox.pack(side=tk.LEFT, padx=5)
