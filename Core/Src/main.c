@@ -37,8 +37,10 @@
 /* USER CODE BEGIN PD */
 #define RX_BUFFER_SIZE 128
 #define TX_BUFFER_SIZE 128
-#define MAX_MOTOR_STEPS 10000L  // Define maximum allowed steps
-#define MIN_MOTOR_STEPS -10000L // Define minimum allowed steps
+#define MAX_MOTOR_STEPS 999999L   // Match GUI max position
+#define MIN_MOTOR_STEPS -999999L  // Match GUI min position
+#define STATUS_UPDATE_INTERVAL 1000 // milliseconds - match GUI's STATUS_POLL_INTERVAL
+#define MAIN_LOOP_DELAY 50        // milliseconds - faster loop for responsiveness
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -65,6 +67,10 @@ static volatile int32_t motor1_target = 0;
 static uint8_t uart_rx_byte;
 static uint8_t command_buffer[RX_BUFFER_SIZE];
 static volatile uint32_t cmd_index = 0;
+
+// Timing variables for status updates
+static volatile uint32_t last_status_update = 0;
+static volatile uint32_t system_tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -84,11 +90,11 @@ static void ParseCommand(void);
 static void SendMotorStatus(uint8_t motor_id);
 static void SendError(uint8_t motor_id, const char *error_type, const char *description);
 static void MoveMotorsToPosition(int32_t motor0_pos, int32_t motor1_pos);
+static void CheckMotorErrors(uint8_t motor_id);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
 /* USER CODE END 0 */
 
 /**
@@ -133,6 +139,8 @@ int main(void)
   BSP_MotorControl_CmdResetPos(1);
   HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
 
+  system_tick = 0;
+  last_status_update = 0;
   UART_SendString("SYSTEM,READY\n");
   /* USER CODE END 2 */
 
@@ -144,18 +152,15 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  if (command_ready)
-	      {
-	        command_ready = 0;
-	        ParseCommand();
-	      }
+	    // Process incoming commands
+	    if (command_ready)
+	    {
+	      command_ready = 0;
+	      ParseCommand();
+	    }
 
-	      // Check motor status
-	      SendMotorStatus(0);
-	      SendMotorStatus(1);
-
-	      HAL_Delay(1000);
-
+	    // Small delay to prevent busy-waiting, but fast enough for responsiveness
+	    HAL_Delay(MAIN_LOOP_DELAY);
 
   }
   /* USER CODE END 3 */
@@ -530,6 +535,12 @@ void ParseCommand(void)
     BSP_MotorControl_CmdResetPos(1);
     UART_SendString("OK,RESET_COMPLETE\n");
   }
+  else if (strncmp(cmd, "HIZ", 3) == 0)
+  {
+    UART_SendString("OK,HIZ\n");
+    BSP_MotorControl_CmdHardHiZ(0);
+    BSP_MotorControl_CmdHardHiZ(1);
+  }
   else
   {
     // Safely truncate unknown command in error message
@@ -601,11 +612,11 @@ void MyBusyInterruptHandler(void)
 {
    if (BSP_MotorControl_CheckBusyHw())
    {
-
+     // Busy signal active
    }
    else
    {
-
+     // Busy signal inactive
    }
 }
 
