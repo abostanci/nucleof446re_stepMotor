@@ -283,29 +283,6 @@ class MotorControlGUI:
         self.send_command("STOP")
         self.log_console("Soft stop activated - motors coasting...", 'info')
 
-    def _create_status_control_buttons(self, parent):
-        """Create status control buttons"""
-        control_frame = ttk.Frame(parent)
-        control_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        ttk.Button(control_frame, text="Read Status", command=self.read_status_once).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Clear Errors", command=self.clear_errors).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Soft Stop", command=self.soft_stop, 
-                style='Danger.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="HiZ (Disable)", command=self.hiz_disable, 
-                style='Danger.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="EMERGENCY STOP", command=self.emergency_stop, 
-                style='Danger.TButton').pack(side=tk.LEFT, padx=20)
-
-    def soft_stop(self):
-        """Soft stop all motors (coasts to stop)"""
-        if not self.running:
-            messagebox.showwarning("Not Connected", "Please connect to a device first")
-            return
-        
-        self.send_command("STOP")
-        self.log_console("Soft stop activated - motors coasting...", 'info')
-
     def hiz_disable(self):
         """Disable motors (high impedance state)"""
         if not self.running:
