@@ -50,7 +50,7 @@ class MotorControlGUI:
         # Timing for rate-limiting
         self.last_status_request = 0
         self.auto_refresh_enabled = True  # Enable by default when connected
-        self.status_poll_interval = 0.2  # seconds - changeable at runtime
+        self.status_poll_interval = 1  # seconds - changeable at runtime
         self.status_update_job = None  # Track scheduled status updates
         
         # Saved positions and sequences
