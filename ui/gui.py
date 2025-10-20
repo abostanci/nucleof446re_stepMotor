@@ -591,6 +591,10 @@ class MotorControlGUI:
 
     def setup_debug_tab(self, parent):
         """Setup debug console tab"""
+        # Add console pause state
+        if not hasattr(self, 'console_paused'):
+            self.console_paused = False
+        
         cmd_frame = ttk.Frame(parent)
         cmd_frame.pack(fill=tk.X, padx=10, pady=10)
         
@@ -600,7 +604,14 @@ class MotorControlGUI:
         cmd_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         cmd_entry.bind('<Return>', lambda e: self.send_custom_command())
         ttk.Button(cmd_frame, text="Send", command=self.send_custom_command).pack(side=tk.LEFT, padx=5)
-        ttk.Button(cmd_frame, text="Clear", command=self.clear_console).pack(side=tk.LEFT, padx=5)
+        
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.pause_button = ttk.Button(button_frame, text="⏸ Pause Console", 
+                                    command=self.toggle_console_pause)
+        self.pause_button.pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="Clear", command=self.clear_console).pack(side=tk.LEFT, padx=2)
         
         console_frame = ttk.LabelFrame(parent, text="Communication Log", padding=5)
         console_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -609,7 +620,7 @@ class MotorControlGUI:
         console_container.pack(fill=tk.BOTH, expand=True)
         
         self.console_text = tk.Text(console_container, height=25, width=80, 
-                                   bg='black', fg='green', font=('Courier', 9), wrap=tk.WORD)
+                                bg='black', fg='green', font=('Courier', 9), wrap=tk.WORD)
         self.console_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         scrollbar = ttk.Scrollbar(console_container, command=self.console_text.yview)
@@ -918,7 +929,13 @@ class MotorControlGUI:
             # Console not ready yet, just log to logger
             logger.info(message)
             return
-            
+        
+        # Skip logging if paused, unless it's a pause/resume message
+        if self.console_paused and tag != 'info':
+            # For pause messages, still log them but check content
+            if not any(x in message for x in ['paused', 'resumed', 'resumed']):
+                return
+        
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         self.console_text.insert(tk.END, f"[{timestamp}] {message}\n", tag)
         self.console_text.see(tk.END)
@@ -927,6 +944,16 @@ class MotorControlGUI:
         lines = int(self.console_text.index('end-1c').split('.')[0])
         if lines > 1000:
             self.console_text.delete('1.0', '100.0')
+
+    def toggle_console_pause(self):
+        """Toggle console pause/resume"""
+        self.console_paused = not self.console_paused
+        if self.console_paused:
+            self.pause_button.config(text="▶ Resume Console")
+            self.log_console("⏸ Console paused - incoming messages will not be displayed", 'info')
+        else:
+            self.pause_button.config(text="⏸ Pause Console")
+            self.log_console("▶ Console resumed - logging messages again", 'info')
 
     def clear_console(self):
         """Clear console"""
