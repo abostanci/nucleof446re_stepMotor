@@ -1,0 +1,141 @@
+{
+  "system": {
+    "name": "Dual Motor Control System",
+    "version": "2.0",
+    "description": "Configuration for STM32 + PowerStep01 motor control"
+  },
+  
+  "serial": {
+    "baud_rate": 115200,
+    "timeout": 0.1,
+    "default_port": "COM3",
+    "auto_connect": false,
+    "reconnect_attempts": 3,
+    "reconnect_delay": 1.0
+  },
+  
+  "motors": {
+    "motor_0": {
+      "name": "X-Axis",
+      "max_position": 999999,
+      "min_position": -999999,
+      "steps_per_unit": 200,
+      "units": "steps",
+      "max_speed": 1000,
+      "acceleration": 500,
+      "home_position": 0,
+      "soft_limit_min": -50000,
+      "soft_limit_max": 50000
+    },
+    "motor_1": {
+      "name": "Y-Axis",
+      "max_position": 999999,
+      "min_position": -999999,
+      "steps_per_unit": 200,
+      "units": "steps",
+      "max_speed": 1000,
+      "acceleration": 500,
+      "home_position": 0,
+      "soft_limit_min": -50000,
+      "soft_limit_max": 50000
+    }
+  },
+  
+  "gui": {
+    "window_width": 1000,
+    "window_height": 750,
+    "theme": "default",
+    "auto_refresh": true,
+    "status_poll_interval": 1,
+    "sequence_poll_interval": 1,
+    "console_max_lines": 1000,
+    "show_milliseconds": true
+  },
+  
+  "quick_positions": {
+    "matrix_rows": 4,
+    "matrix_cols": 6,
+    "enable_home_button": true,
+    "button_width": 8
+  },
+  
+  "sequences": {
+    "default_delay": 1.0,
+    "max_timeout": 30,
+    "allow_loops": false,
+    "confirm_before_run": false
+  },
+  
+  "safety": {
+    "enable_soft_limits": true,
+    "emergency_stop_timeout": 0.5,
+    "position_error_threshold": 100,
+    "temperature_warning": 70,
+    "temperature_shutdown": 85
+  },
+  
+  "files": {
+    "positions_file": "motor_positions.json",
+    "sequences_file": "sequences.json",
+    "log_file": "motor_control.log",
+    "auto_save": true,
+    "backup_on_exit": true
+  },
+  
+  "advanced": {
+    "debug_mode": false,
+    "verbose_logging": false,
+    "command_echo": false,
+    "simulate_hardware": false
+  },
+  
+  "presets": {
+    "example_positions": {
+      "Home": {"motor0": 0, "motor1": 0},
+      "Center": {"motor0": 5000, "motor1": 5000},
+      "Corner1": {"motor0": 0, "motor1": 10000},
+      "Corner2": {"motor0": 10000, "motor1": 0},
+      "Corner3": {"motor0": 10000, "motor1": 10000}
+    },
+    "example_sequences": {
+      "Square Pattern": [
+        {"pos_name": "Home", "delay": 1.0},
+        {"pos_name": "Corner1", "delay": 2.0},
+        {"pos_name": "Corner3", "delay": 2.0},
+        {"pos_name": "Corner2", "delay": 2.0},
+        {"pos_name": "Home", "delay": 1.0}
+      ],
+      "Simple Test": [
+        {"pos_name": "Home", "delay": 1.0},
+        {"pos_name": "Center", "delay": 2.0},
+        {"pos_name": "Home", "delay": 1.0}
+      ]
+    }
+  },
+  
+  "calibration": {
+    "motor_0": {
+      "calibrated": false,
+      "calibration_date": null,
+      "steps_per_mm": null,
+      "backlash_compensation": 0,
+      "offset": 0
+    },
+    "motor_1": {
+      "calibrated": false,
+      "calibration_date": null,
+      "steps_per_mm": null,
+      "backlash_compensation": 0,
+      "offset": 0
+    }
+  },
+  
+  "notes": {
+    "configuration_guide": "Edit this file to customize system behavior",
+    "serial_port": "Set default_port to your COM port (Windows) or /dev/ttyUSB0 (Linux)",
+    "position_limits": "Adjust max/min positions based on your mechanical setup",
+    "soft_limits": "Enable to prevent movement beyond safe range",
+    "presets": "Load example positions/sequences or replace with your own",
+    "backup": "Original settings saved to motor_config.json.backup"
+  }
+}
