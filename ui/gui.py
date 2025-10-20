@@ -753,29 +753,50 @@ class MotorControlGUI:
         self.read_status()
 
     def read_serial(self):
-        """Read serial data in background thread"""
+        """Read serial data in background thread with improved error handling"""
         buffer = ""
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
         while self.running:
             try:
-                if self.serial_port and self.serial_port.is_open and self.serial_port.in_waiting:
-                    data = self.serial_port.read(self.serial_port.in_waiting).decode('ascii', errors='ignore')
-                    buffer += data
-                    
-                    # Process complete lines
-                    while '\n' in buffer:
-                        line, buffer = buffer.split('\n', 1)
-                        line = line.strip()
-                        if line:
-                            # Queue for parsing in separate thread
-                            self.response_queue.put(line)
-                            # Log received data
-                            self.root.after(0, lambda l=line: self.log_console(f"RX: {l}", 'rx'))
+                if self.serial_port and self.serial_port.is_open:
+                    if self.serial_port.in_waiting:
+                        data = self.serial_port.read(self.serial_port.in_waiting).decode('ascii', errors='ignore')
+                        buffer += data
+                        consecutive_errors = 0  # Reset error counter on success
+                        
+                        # Process complete lines
+                        while '\n' in buffer:
+                            line, buffer = buffer.split('\n', 1)
+                            line = line.strip()
+                            if line:
+                                self.response_queue.put(line)
+                                # Capture lambda variables properly
+                                self.root.after(0, lambda l=line: self.log_console(f"RX: {l}", 'rx'))
+                    else:
+                        time.sleep(0.01)
                 else:
                     time.sleep(0.01)
+                    
             except Exception as e:
-                if self.running:
-                    logger.exception("Read error")
-                    self.root.after(0, lambda: self.log_console(f"Read error: {str(e)}", 'error'))
+                consecutive_errors += 1
+                
+                # Only log error on first occurrence or every Nth occurrence to avoid spam
+                if consecutive_errors <= 1 or consecutive_errors % 10 == 0:
+                    if self.running:
+                        logger.exception(f"Read error (consecutive: {consecutive_errors})")
+                        # Capture exception in lambda default argument
+                        error_msg = f"Read error: {str(e)}"
+                        self.root.after(0, lambda msg=error_msg: self.log_console(msg, 'error'))
+                
+                # If too many consecutive errors, disconnect
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.critical(f"Too many consecutive read errors ({consecutive_errors}), disconnecting")
+                    self.root.after(0, lambda: self.log_console("Serial connection lost - too many errors", 'error'))
+                    self.root.after(0, self.disconnect)
+                    break
+                
                 time.sleep(0.1)
 
     def process_responses(self):
@@ -797,14 +818,20 @@ class MotorControlGUI:
             try:
                 command = self.command_queue.get(timeout=0.1)
                 if self.serial_port and self.serial_port.is_open:
-                    self.serial_port.write((command + '\n').encode())
-                    self.root.after(0, lambda c=command: self.log_console(f"TX: {c}", 'tx'))
+                    try:
+                        self.serial_port.write((command + '\n').encode())
+                        self.root.after(0, lambda c=command: self.log_console(f"TX: {c}", 'tx'))
+                    except Exception as write_err:
+                        # Capture exception for lambda closure
+                        self.root.after(0, lambda e=write_err: self.log_console(f"Send error: {str(e)}", 'error'))
+                        logger.exception("Write failed")
             except Empty:
                 continue
             except Exception as e:
                 if self.running:
-                    logger.exception("Send error")
-                    self.root.after(0, lambda: self.log_console(f"Send error: {str(e)}", 'error'))
+                    logger.exception("Command queue error")
+                    # Capture exception in lambda default argument
+                    self.root.after(0, lambda err=e: self.log_console(f"Command error: {str(err)}", 'error'))
 
     def send_command(self, command):
         """Queue command for sending"""

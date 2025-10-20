@@ -22,5 +22,23 @@
       "pos_name": "1_3",
       "delay": 1.0
     }
+  ],
+  "ikinci": [
+    {
+      "pos_name": "2_1",
+      "delay": 1.0
+    },
+    {
+      "pos_name": "2_2",
+      "delay": 1.0
+    },
+    {
+      "pos_name": "2_3",
+      "delay": 1.0
+    },
+    {
+      "pos_name": "2_4",
+      "delay": 1.0
+    }
   ]
 }
