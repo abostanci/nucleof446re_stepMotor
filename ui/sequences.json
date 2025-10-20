@@ -8,5 +8,19 @@
       "pos_name": "Home",
       "delay": 1.0
     }
+  ],
+  "birinci": [
+    {
+      "pos_name": "1_1",
+      "delay": 1.0
+    },
+    {
+      "pos_name": "1_2",
+      "delay": 1.0
+    },
+    {
+      "pos_name": "1_3",
+      "delay": 1.0
+    }
   ]
 }

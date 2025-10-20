@@ -344,6 +344,7 @@ class MotorControlGUI:
         self._create_motor_status_frames(parent)
         self._create_jog_controls(parent)
         self._create_direct_position_controls(parent)
+        self._create_manual_control_buttons(parent)
 
     def _create_jog_controls(self, parent):
         """Create jog control frame"""
@@ -405,6 +406,16 @@ class MotorControlGUI:
                   command=self.home).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Reset Position Counters", 
                   command=self.reset_position).pack(side=tk.LEFT, padx=5)
+        
+    def _create_manual_control_buttons(self, parent):
+        """Create manual control buttons (HiZ and Soft Stop)"""
+        button_frame = ttk.LabelFrame(parent, text="Motor Control", padding=10)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Button(button_frame, text="Soft Stop", command=self.soft_stop, 
+                style='Danger.TButton').pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="HiZ (Disable)", command=self.hiz_disable, 
+                style='Danger.TButton').pack(side=tk.LEFT, padx=5)
 
     def setup_position_tab(self, parent):
         """Setup position management tab"""
