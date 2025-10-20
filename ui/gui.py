@@ -1434,7 +1434,7 @@ class MotorControlGUI:
                 
                 # Wait for motors to stop moving
                 time.sleep(0.2)  # Initial settling time
-                timeout = 30  # 30 second timeout
+                timeout = 60  # 30 second timeout
                 start_time = time.time()
                 
                 while (self._get_motor_state(0)['moving'] or self._get_motor_state(1)['moving']):
