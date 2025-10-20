@@ -542,35 +542,49 @@ class MotorControlGUI:
         
         ttk.Label(editor_frame, text="Sequence Name:").pack(anchor=tk.W)
         self.seq_name_var = tk.StringVar()
-        ttk.Entry(editor_frame, textvariable=self.seq_name_var).pack(fill=tk.X)
+        ttk.Entry(editor_frame, textvariable=self.seq_name_var).pack(fill=tk.X, pady=(0, 10))
         
         steps_frame = ttk.LabelFrame(editor_frame, text="Steps", padding=5)
         steps_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        self.sequence_steps_tree = ttk.Treeview(steps_frame, columns=('Position', 'Delay'), show='headings')
-        self.sequence_steps_tree.heading('Position', text='Position')
+        # Configure scrollbar for tree
+        scrollbar = ttk.Scrollbar(steps_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.sequence_steps_tree = ttk.Treeview(steps_frame, columns=('Position', 'Delay'), 
+                                               show='tree headings', height=8,
+                                               yscrollcommand=scrollbar.set)
+        scrollbar.config(command=self.sequence_steps_tree.yview)
+        
+        # Configure column headings and widths
+        self.sequence_steps_tree.heading('#0', text='#')
+        self.sequence_steps_tree.heading('Position', text='Position Name')
         self.sequence_steps_tree.heading('Delay', text='Delay (s)')
+        
+        self.sequence_steps_tree.column('#0', width=30, anchor=tk.CENTER)
+        self.sequence_steps_tree.column('Position', width=200, anchor=tk.W)
         self.sequence_steps_tree.column('Delay', width=80, anchor=tk.CENTER)
+        
         self.sequence_steps_tree.pack(fill=tk.BOTH, expand=True)
         
         add_step_frame = ttk.Frame(editor_frame)
-        add_step_frame.pack(fill=tk.X, pady=5)
+        add_step_frame.pack(fill=tk.X, pady=10)
         
-        ttk.Label(add_step_frame, text="Position:").pack(side=tk.LEFT)
-        self.pos_to_add_combo = ttk.Combobox(add_step_frame, state='readonly')
-        self.pos_to_add_combo.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
+        ttk.Label(add_step_frame, text="Position:").pack(side=tk.LEFT, padx=(0, 5))
+        self.pos_to_add_combo = ttk.Combobox(add_step_frame, state='readonly', width=25)
+        self.pos_to_add_combo.pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Label(add_step_frame, text="Delay (s):").pack(side=tk.LEFT)
+        ttk.Label(add_step_frame, text="Delay (s):").pack(side=tk.LEFT, padx=(0, 5))
         self.delay_var = tk.DoubleVar(value=1.0)
         ttk.Spinbox(add_step_frame, from_=0, to=60, increment=0.1, 
-                   textvariable=self.delay_var, width=6).pack(side=tk.LEFT, padx=5)
+                   textvariable=self.delay_var, width=8).pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Button(add_step_frame, text="Add Step", command=self.add_step_to_sequence).pack(side=tk.LEFT)
         
         editor_btn_frame = ttk.Frame(editor_frame)
         editor_btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(editor_btn_frame, text="Remove Step", command=self.remove_step_from_sequence).pack(side=tk.LEFT)
-        ttk.Button(editor_btn_frame, text="Clear All", command=self.clear_sequence_steps).pack(side=tk.LEFT, padx=5)
+        ttk.Button(editor_btn_frame, text="Remove Step", command=self.remove_step_from_sequence).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(editor_btn_frame, text="Clear All", command=self.clear_sequence_steps).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(editor_btn_frame, text="Save Sequence", command=self.save_new_sequence).pack(side=tk.RIGHT)
         
         self.update_pos_to_add_combo()
@@ -1229,9 +1243,10 @@ class MotorControlGUI:
         for item in self.sequence_steps_tree.get_children():
             self.sequence_steps_tree.delete(item)
         
-        for step in self.sequences.get(seq_name, []):
-            self.sequence_steps_tree.insert('', 'end', 
-                                           values=(step['pos_name'], step['delay']))
+        steps = self.sequences.get(seq_name, [])
+        for i, step in enumerate(steps, 1):
+            self.sequence_steps_tree.insert('', 'end', text=str(i),
+                                           values=(step['pos_name'], f"{step['delay']:.1f}"))
 
     def update_pos_to_add_combo(self):
         """Update the combobox with saved positions"""
@@ -1247,13 +1262,19 @@ class MotorControlGUI:
         if not pos_name:
             messagebox.showwarning("Warning", "Please select a position")
             return
-        self.sequence_steps_tree.insert('', 'end', values=(pos_name, delay))
+        
+        # Add with step number
+        step_num = len(self.sequence_steps_tree.get_children()) + 1
+        self.sequence_steps_tree.insert('', 'end', text=str(step_num), 
+                                       values=(pos_name, f"{delay:.1f}"))
+        self.log_console(f"Added step {step_num}: '{pos_name}' with {delay}s delay", 'info')
 
     def remove_step_from_sequence(self):
         """Remove selected step from editor"""
         selection = self.sequence_steps_tree.selection()
         if selection:
             self.sequence_steps_tree.delete(selection[0])
+            self.log_console("Removed step from sequence", 'info')
         else:
             messagebox.showwarning("Warning", "Please select a step to remove")
 
@@ -1262,6 +1283,7 @@ class MotorControlGUI:
         if messagebox.askyesno("Confirm Clear", "Remove all steps from the editor?"):
             for item in self.sequence_steps_tree.get_children():
                 self.sequence_steps_tree.delete(item)
+            self.log_console("Cleared all sequence steps", 'info')
 
     def save_new_sequence(self):
         """Save or update a sequence"""
@@ -1270,10 +1292,16 @@ class MotorControlGUI:
             messagebox.showerror("Error", "Please enter a sequence name")
             return
         
+        # Validate name
+        if not name.replace('_', '').replace('-', '').isalnum():
+            messagebox.showerror("Error", "Sequence name can only contain letters, numbers, hyphens and underscores")
+            return
+        
         steps = []
         for item in self.sequence_steps_tree.get_children():
             values = self.sequence_steps_tree.item(item, 'values')
-            steps.append({'pos_name': values[0], 'delay': float(values[1])})
+            if len(values) >= 2:
+                steps.append({'pos_name': values[0], 'delay': float(values[1])})
         
         if not steps:
             messagebox.showwarning("Warning", "Sequence has no steps")
@@ -1282,6 +1310,12 @@ class MotorControlGUI:
         self.sequences[name] = steps
         self.save_sequences()
         self.refresh_sequence_list()
+        
+        # Clear editor
+        self.seq_name_var.set("")
+        for item in self.sequence_steps_tree.get_children():
+            self.sequence_steps_tree.delete(item)
+        
         self.log_console(f"✓ Sequence '{name}' saved with {len(steps)} steps", 'info')
         messagebox.showinfo("Success", f"Sequence '{name}' saved successfully!")
 
