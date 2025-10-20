@@ -46,7 +46,11 @@ class MotorControlGUI:
         self.motor_moving = {0: False, 1: False}
         self.motor_errors = {0: False, 1: False}
         self.status_registers = {0: 0x0000, 1: 0x0000}
-        
+
+        # Motor display references (single list for all instances)
+        self.motor0_instances = []  # List of all motor 0 label sets
+        self.motor1_instances = []  # List of all motor 1 label sets
+
         # Timing for rate-limiting
         self.last_status_request = 0
         self.auto_refresh_enabled = True  # Enable by default when connected
@@ -215,19 +219,22 @@ class MotorControlGUI:
         bits_frame = ttk.Frame(motor_frame)
         bits_frame.pack(fill=tk.X, pady=10)
         
-        # Store references
+        bits = self._create_status_bits(bits_frame)
+        
+        # Store this instance in the appropriate list
+        instance = {
+            'pos': pos_label,
+            'status': status_label,
+            'error': error_label,
+            'hex': hex_label,
+            'bits': bits
+        }
+        
         if motor_id == 0:
-            self.motor0_pos_label = pos_label
-            self.motor0_status_label = status_label
-            self.motor0_error_label = error_label
-            self.motor0_hex_label = hex_label
-            self.motor0_status_bits = self._create_status_bits(bits_frame)
+            self.motor0_instances.append(instance)
         else:
-            self.motor1_pos_label = pos_label
-            self.motor1_status_label = status_label
-            self.motor1_error_label = error_label
-            self.motor1_hex_label = hex_label
-            self.motor1_status_bits = self._create_status_bits(bits_frame)
+            self.motor1_instances.append(instance)
+
 
     def _create_quick_positions_matrix(self, parent):
         """Create 4x6 matrix of quick position buttons"""
@@ -862,39 +869,38 @@ class MotorControlGUI:
             self.root.after(0, lambda msg=error_message: self.log_console(msg, 'error'))
 
     def update_motor_display(self, motor_id):
-        """Update motor status display - must be called from main thread"""
+        """Update motor status display on all tabs - must be called from main thread"""
         state = self._get_motor_state(motor_id)
         position = state['position']
         is_moving = state['moving']
         has_error = state['error']
         status_reg = state['status_reg']
         
-        if motor_id == 0:
-            labels = (self.motor0_pos_label, self.motor0_status_label, 
-                     self.motor0_error_label, self.motor0_hex_label)
-            bits = self.motor0_status_bits
-        else:
-            labels = (self.motor1_pos_label, self.motor1_status_label, 
-                     self.motor1_error_label, self.motor1_hex_label)
-            bits = self.motor1_status_bits
+        # Get all instances for this motor
+        instances = self.motor0_instances if motor_id == 0 else self.motor1_instances
         
-        labels[0].config(text=f"Position: {position:,}")
-        labels[1].config(text=f"Status: {'MOVING' if is_moving else 'IDLE'}")
-        labels[2].config(text=f"Errors: {'⚠ YES' if has_error else '✓ None'}")
-        labels[3].config(text=f"Register: 0x{status_reg:04X}")
+        # Update every instance
+        for instance in instances:
+            instance['pos'].config(text=f"Position: {position:,}")
+            instance['status'].config(text=f"Status: {'MOVING' if is_moving else 'IDLE'}")
+            instance['error'].config(text=f"Errors: {'⚠ YES' if has_error else '✓ None'}")
+            instance['hex'].config(text=f"Register: 0x{status_reg:04X}")
+            
+            style = 'Moving.TLabel' if is_moving else 'TLabel'
+            instance['status'].config(style=style)
+            
+            if has_error:
+                instance['error'].config(style='Error.TLabel')
+            else:
+                instance['error'].config(style='TLabel')
+            
+            self.update_status_bits(motor_id, status_reg, instance['bits'])
         
-        style = 'Moving.TLabel' if is_moving else 'TLabel'
-        labels[1].config(style=style)
-        
-        if has_error:
-            labels[2].config(style='Error.TLabel')
-        else:
-            labels[2].config(style='TLabel')
-        
-        self.update_status_bits(motor_id, status_reg, bits)
-        self.current_pos_label.config(
-            text=f"Current: M0={self._get_motor_state(0)['position']:,}, M1={self._get_motor_state(1)['position']:,}"
-        )
+        # Update current position label (status tab only)
+        if hasattr(self, 'current_pos_label'):
+            self.current_pos_label.config(
+                text=f"Current: M0={self._get_motor_state(0)['position']:,}, M1={self._get_motor_state(1)['position']:,}"
+            )
 
     def update_status_bits(self, motor_id, status_reg, bits):
         """Update status bit indicators"""
