@@ -113,19 +113,19 @@
 
 /// Register : TVAL_ACC 
 /// Acceleration torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_ACC_DEVICE_0  (328.12)
+#define POWERSTEP01_CONF_PARAM_TVAL_ACC_DEVICE_0  (203.12)
 
 /// Register : TVAL_DEC 
 /// Deceleration torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_DEC_DEVICE_0  (328.12)
+#define POWERSTEP01_CONF_PARAM_TVAL_DEC_DEVICE_0  (203.12)
 
 /// Register : TVAL_RUN 
 /// Running torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_RUN_DEVICE_0  (328.12)
+#define POWERSTEP01_CONF_PARAM_TVAL_RUN_DEVICE_0  (203.12)
 
 /// Register : TVAL_HOLD 
 /// Holding torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_HOLD_DEVICE_0 (328.12) 
+#define POWERSTEP01_CONF_PARAM_TVAL_HOLD_DEVICE_0 (203.12)
 
 /// Register : CONFIG - field : EN_TQREG 
 /// External torque regulation enabling , enum powerstep01_ConfigEnTqReg_t 
@@ -159,7 +159,7 @@
 
 /// Register : GATECFG1 - field : IGATE 
 /// Gate sink/source current via enum powerstep01_Igate_t 
-#define POWERSTEP01_CONF_PARAM_IGATE_DEVICE_0      (POWERSTEP01_IGATE_64mA)
+#define POWERSTEP01_CONF_PARAM_IGATE_DEVICE_0      (POWERSTEP01_IGATE_8mA)
 
 /// Register : CONFIG - field : VCCVAL 
 /// VCC Val, enum powerstep01_ConfigVccVal_t 
@@ -319,19 +319,19 @@
 
 /// Register : TVAL_ACC 
 /// Acceleration torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_ACC_DEVICE_1  (328.12)
+#define POWERSTEP01_CONF_PARAM_TVAL_ACC_DEVICE_1  (140.62)
 
 /// Register : TVAL_DEC 
 /// Deceleration torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_DEC_DEVICE_1  (328.12)
+#define POWERSTEP01_CONF_PARAM_TVAL_DEC_DEVICE_1  (140.62)
 
 /// Register : TVAL_RUN 
 /// Running torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_RUN_DEVICE_1  (328.12)
+#define POWERSTEP01_CONF_PARAM_TVAL_RUN_DEVICE_1  (140.62)
 
 /// Register : TVAL_HOLD 
 /// Holding torque in mV, range from 7.8mV to 1000 mV 
-#define POWERSTEP01_CONF_PARAM_TVAL_HOLD_DEVICE_1 (328.12) 
+#define POWERSTEP01_CONF_PARAM_TVAL_HOLD_DEVICE_1 (140.62)
 
 /// Register : CONFIG - field : EN_TQREG 
 /// External torque regulation enabling , enum powerstep01_ConfigEnTqReg_t 
@@ -365,7 +365,7 @@
 
 /// Register : GATECFG1 - field : IGATE 
 /// Gate sink/source current via enum powerstep01_Igate_t 
-#define POWERSTEP01_CONF_PARAM_IGATE_DEVICE_1      (POWERSTEP01_IGATE_64mA)
+#define POWERSTEP01_CONF_PARAM_IGATE_DEVICE_1      (POWERSTEP01_IGATE_8mA)
 
 /// Register : CONFIG - field : VCCVAL 
 /// VCC Val, enum powerstep01_ConfigVccVal_t 

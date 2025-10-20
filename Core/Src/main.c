@@ -39,7 +39,6 @@
 #define TX_BUFFER_SIZE 128
 #define MAX_MOTOR_STEPS 999999L   // Match GUI max position
 #define MIN_MOTOR_STEPS -999999L  // Match GUI min position
-#define STATUS_UPDATE_INTERVAL 1000 // milliseconds - match GUI's STATUS_POLL_INTERVAL
 #define MAIN_LOOP_DELAY 50        // milliseconds - faster loop for responsiveness
 /* USER CODE END PD */
 

@@ -16,7 +16,6 @@ BAUD_RATE = 115200
 SERIAL_TIMEOUT = 0.1
 MAX_POSITION = 999999
 MIN_POSITION = -999999
-# STATUS_POLL_INTERVAL = 1  # seconds
 SEQUENCE_POLL_INTERVAL = 1
 BUTTON_MATRIX_ROWS = 4
 BUTTON_MATRIX_COLS = 6
@@ -27,11 +26,57 @@ SEQUENCES_FILE = 'sequences.json'
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+class ScrollableFrame(ttk.Frame):
+    """A frame that can scroll its contents"""
+    def __init__(self, parent, **kwargs):
+        ttk.Frame.__init__(self, parent, **kwargs)
+        
+        canvas = tk.Canvas(self, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Bind mouse wheel events for scrolling
+        def _on_mousewheel(event):
+            if event.num == 5 or event.delta < 0:
+                canvas.yview_scroll(3, "units")
+            elif event.num == 4 or event.delta > 0:
+                canvas.yview_scroll(-3, "units")
+        
+        # Windows and macOS
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        # Linux
+        canvas.bind("<Button-4>", _on_mousewheel)
+        canvas.bind("<Button-5>", _on_mousewheel)
+        
+        # Also bind to the scrollable frame for when focus is on content
+        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind("<Button-4>", _on_mousewheel)
+        scrollable_frame.bind("<Button-5>", _on_mousewheel)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        self.canvas = canvas
+        self.scrollable_frame = scrollable_frame
+    
+    def get_frame(self):
+        return self.scrollable_frame
+
 class MotorControlGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Step Motor Controller")
-        self.root.geometry("1280x780")
+        # Set minimum window size instead of fixed size
+        self.root.geometry("1000x700")
+        self.root.minsize(800, 600)
         
         # Thread safety
         self.state_lock = threading.Lock()
@@ -48,14 +93,14 @@ class MotorControlGUI:
         self.status_registers = {0: 0x0000, 1: 0x0000}
 
         # Motor display references (single list for all instances)
-        self.motor0_instances = []  # List of all motor 0 label sets
-        self.motor1_instances = []  # List of all motor 1 label sets
+        self.motor0_instances = []
+        self.motor1_instances = []
 
         # Timing for rate-limiting
         self.last_status_request = 0
-        self.auto_refresh_enabled = True  # Enable by default when connected
-        self.status_poll_interval = 1  # seconds - changeable at runtime
-        self.status_update_job = None  # Track scheduled status updates
+        self.auto_refresh_enabled = True
+        self.status_poll_interval = 1
+        self.status_update_job = None
         
         # Saved positions and sequences
         self.saved_positions = {}
@@ -67,15 +112,12 @@ class MotorControlGUI:
         
         # Command queue for thread safety
         self.command_queue = Queue()
-        
-        # Response queue for parsing
         self.response_queue = Queue()
         
         self.load_positions()
         self.load_sequences()
         self.setup_ui()
         
-        # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
     def _get_motor_state(self, motor_id):
@@ -107,10 +149,10 @@ class MotorControlGUI:
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Create tabs
-        status_tab = ttk.Frame(notebook)
-        control_tab = ttk.Frame(notebook)
-        position_tab = ttk.Frame(notebook)
+        # Create tabs with scrollable frames
+        status_tab = ScrollableFrame(notebook)
+        control_tab = ScrollableFrame(notebook)
+        position_tab = ScrollableFrame(notebook)
         sequence_tab = ttk.Frame(notebook)
         debug_tab = ttk.Frame(notebook)
         
@@ -120,13 +162,12 @@ class MotorControlGUI:
         notebook.add(sequence_tab, text="Sequences")
         notebook.add(debug_tab, text="Debug Console")
         
-        self.setup_status_tab(status_tab)
-        self.setup_control_tab(control_tab)
+        self.setup_status_tab(status_tab.get_frame())
+        self.setup_control_tab(control_tab.get_frame())
         self.setup_sequence_tab(sequence_tab)
-        self.setup_position_tab(position_tab)
+        self.setup_position_tab(position_tab.get_frame())
         self.setup_debug_tab(debug_tab)
         
-        # Now that console exists, refresh ports
         self.refresh_ports()
         
     def _configure_styles(self):
@@ -146,7 +187,6 @@ class MotorControlGUI:
         self._create_status_control_buttons(parent)
         
         self.update_matrix_labels()
-        # Note: refresh_ports() called after UI setup complete
 
     def _create_connection_frame(self, parent):
         """Create serial connection control frame"""
@@ -178,7 +218,8 @@ class MotorControlGUI:
                                        textvariable=self.status_interval_var, width=10)
         interval_spinbox.pack(side=tk.LEFT, padx=5)
         ttk.Button(interval_frame, text="Apply", command=self.apply_status_interval).pack(side=tk.LEFT, padx=5)
-        ttk.Label(interval_frame, text="(lower = faster updates, higher = less traffic)").pack(side=tk.LEFT, padx=5)
+        ttk.Label(interval_frame, text="(lower = faster updates)").pack(side=tk.LEFT, padx=5)
+        
         self.auto_refresh_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(port_frame, text="Auto-refresh", 
                        variable=self.auto_refresh_var,
@@ -187,14 +228,14 @@ class MotorControlGUI:
     def apply_status_interval(self):
         """Apply status update interval"""
         interval_ms = self.status_interval_var.get()
-        self.status_poll_interval = interval_ms / 1000.0  # Convert to seconds
+        self.status_poll_interval = interval_ms / 1000.0
         self.log_console(f"Status interval changed to {interval_ms}ms", 'info')
-        messagebox.showinfo("Applied", f"Status poll interval set to {interval_ms}ms\n\n(takes effect on next update)")
+        messagebox.showinfo("Applied", f"Status poll interval set to {interval_ms}ms")
 
     def _create_motor_status_frames(self, parent):
         """Create motor status display frames"""
         status_container = ttk.Frame(parent)
-        status_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        status_container.pack(fill=tk.BOTH, expand=False, padx=10, pady=10)
         
         self._create_single_motor_frame(status_container, 0, "Motor 0 Status")
         self._create_single_motor_frame(status_container, 1, "Motor 1 Status")
@@ -204,7 +245,7 @@ class MotorControlGUI:
         motor_frame = ttk.LabelFrame(parent, text=title, padding=10)
         motor_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         
-        pos_label = ttk.Label(motor_frame, text="Position: 0", font=('Arial', 12))
+        pos_label = ttk.Label(motor_frame, text="Position: 0", font=('Arial', 11))
         pos_label.pack(anchor=tk.W, pady=2)
         
         status_label = ttk.Label(motor_frame, text="Status: IDLE")
@@ -213,15 +254,14 @@ class MotorControlGUI:
         error_label = ttk.Label(motor_frame, text="Errors: None")
         error_label.pack(anchor=tk.W, pady=2)
         
-        hex_label = ttk.Label(motor_frame, text="Register: 0x0000", font=('Courier', 10))
+        hex_label = ttk.Label(motor_frame, text="Register: 0x0000", font=('Courier', 9))
         hex_label.pack(anchor=tk.W, pady=2)
         
         bits_frame = ttk.Frame(motor_frame)
-        bits_frame.pack(fill=tk.X, pady=10)
+        bits_frame.pack(fill=tk.X, pady=5)
         
         bits = self._create_status_bits(bits_frame)
         
-        # Store this instance in the appropriate list
         instance = {
             'pos': pos_label,
             'status': status_label,
@@ -234,7 +274,6 @@ class MotorControlGUI:
             self.motor0_instances.append(instance)
         else:
             self.motor1_instances.append(instance)
-
 
     def _create_quick_positions_matrix(self, parent):
         """Create 4x6 matrix of quick position buttons"""
@@ -250,13 +289,13 @@ class MotorControlGUI:
                 pos_name = f"P{pos_num}"
                 
                 cell_frame = ttk.Frame(matrix_container)
-                cell_frame.grid(row=r, column=c, padx=3, pady=3, sticky='ew')
+                cell_frame.grid(row=r, column=c, padx=2, pady=2, sticky='ew')
                 
-                btn = ttk.Button(cell_frame, text=pos_name, width=8,
+                btn = ttk.Button(cell_frame, text=pos_name, width=6,
                                 command=lambda name=pos_name: self._safe_go_to_position(name))
                 btn.pack()
                 
-                coord_label = ttk.Label(cell_frame, text="(N/A, N/A)", font=('Arial', 8))
+                coord_label = ttk.Label(cell_frame, text="(N/A)", font=('Arial', 7))
                 coord_label.pack()
                 self.matrix_coord_labels[pos_name] = coord_label
         
@@ -264,7 +303,7 @@ class MotorControlGUI:
         home_cell_frame.pack(pady=5)
         ttk.Button(home_cell_frame, text="Home", width=10,
                   command=lambda: self._safe_go_to_position("Home")).pack()
-        self.home_coord_label = ttk.Label(home_cell_frame, text="(N/A, N/A)", font=('Arial', 8))
+        self.home_coord_label = ttk.Label(home_cell_frame, text="(N/A)", font=('Arial', 7))
         self.home_coord_label.pack()
 
     def _create_status_control_buttons(self, parent):
@@ -272,14 +311,14 @@ class MotorControlGUI:
         control_frame = ttk.Frame(parent)
         control_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        ttk.Button(control_frame, text="Read Status", command=self.read_status_once).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Clear Errors", command=self.clear_errors).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control_frame, text="Read Status", command=self.read_status_once).pack(side=tk.LEFT, padx=2)
+        ttk.Button(control_frame, text="Clear Errors", command=self.clear_errors).pack(side=tk.LEFT, padx=2)
         ttk.Button(control_frame, text="Soft Stop", command=self.soft_stop, 
-                style='Danger.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="HiZ (Disable)", command=self.hiz_disable, 
-                style='Danger.TButton').pack(side=tk.LEFT, padx=5)
+                style='Danger.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(control_frame, text="HiZ", command=self.hiz_disable, 
+                style='Danger.TButton').pack(side=tk.LEFT, padx=2)
         ttk.Button(control_frame, text="EMERGENCY STOP", command=self.emergency_stop, 
-                style='Danger.TButton').pack(side=tk.LEFT, padx=20)
+                style='Danger.TButton').pack(side=tk.LEFT, padx=10)
 
     def soft_stop(self):
         """Soft stop all motors (coasts to stop)"""
@@ -312,13 +351,13 @@ class MotorControlGUI:
                 row_frame.pack(fill=tk.X)
             
             bit_frame = ttk.Frame(row_frame)
-            bit_frame.pack(side=tk.LEFT, padx=2)
+            bit_frame.pack(side=tk.LEFT, padx=1)
             
             canvas = tk.Canvas(bit_frame, width=12, height=12)
             canvas.pack()
             indicator = canvas.create_oval(2, 2, 12, 12, fill='gray', outline='black')
             
-            ttk.Label(bit_frame, text=name, font=('Arial', 8)).pack()
+            ttk.Label(bit_frame, text=name, font=('Arial', 7)).pack()
             bits[name] = (canvas, indicator)
         
         return bits
@@ -345,17 +384,17 @@ class MotorControlGUI:
         
         step_frame = ttk.Frame(m_frame)
         step_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(step_frame, text="Step Size:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(step_frame, text="Step:").pack(side=tk.LEFT, padx=5)
         
         step_var = tk.IntVar(value=100)
         ttk.Spinbox(step_frame, from_=1, to=5000, textvariable=step_var, width=10).pack(side=tk.LEFT, padx=5)
         
-        ttk.Button(m_frame, text="<<< Fast (-10x)", 
-                  command=lambda: self.jog_motor(motor_id, -step_var.get()*10)).pack(fill=tk.X, pady=2)
-        ttk.Button(m_frame, text="<< Backward", 
+        ttk.Button(m_frame, text="<< Back", 
                   command=lambda: self.jog_motor(motor_id, -step_var.get())).pack(fill=tk.X, pady=2)
         ttk.Button(m_frame, text=">> Forward", 
                   command=lambda: self.jog_motor(motor_id, step_var.get())).pack(fill=tk.X, pady=2)
+        ttk.Button(m_frame, text="<<< Fast (-10x)", 
+                  command=lambda: self.jog_motor(motor_id, -step_var.get()*10)).pack(fill=tk.X, pady=2)
         ttk.Button(m_frame, text=">>> Fast (+10x)", 
                   command=lambda: self.jog_motor(motor_id, step_var.get()*10)).pack(fill=tk.X, pady=2)
         
@@ -372,7 +411,7 @@ class MotorControlGUI:
         for motor_id in [0, 1]:
             m_pos_frame = ttk.Frame(pos_frame)
             m_pos_frame.pack(fill=tk.X, pady=5)
-            ttk.Label(m_pos_frame, text=f"Motor {motor_id} Target:").pack(side=tk.LEFT, padx=5)
+            ttk.Label(m_pos_frame, text=f"Motor {motor_id}:").pack(side=tk.LEFT, padx=5)
             
             target_var = tk.IntVar(value=0)
             ttk.Entry(m_pos_frame, textvariable=target_var, width=10).pack(side=tk.LEFT, padx=5)
@@ -384,15 +423,15 @@ class MotorControlGUI:
         
         button_frame = ttk.Frame(pos_frame)
         button_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(button_frame, text="Move to Position", 
+        ttk.Button(button_frame, text="Move", 
                   command=self.move_to_position).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Home (Hardware)", 
+        ttk.Button(button_frame, text="Home", 
                   command=self.home).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Reset Position Counters", 
+        ttk.Button(button_frame, text="Reset", 
                   command=self.reset_position).pack(side=tk.LEFT, padx=5)
         
     def _create_manual_control_buttons(self, parent):
-        """Create manual control buttons (HiZ and Soft Stop)"""
+        """Create manual control buttons"""
         button_frame = ttk.LabelFrame(parent, text="Motor Control", padding=10)
         button_frame.pack(fill=tk.X, padx=10, pady=10)
         
@@ -407,47 +446,45 @@ class MotorControlGUI:
         self._create_position_list_frame(parent)
 
     def _create_save_position_frame(self, parent):
-        """Create frame for saving positions (both current and manual entry)"""
+        """Create frame for saving positions"""
         save_frame = ttk.LabelFrame(parent, text="Save Position", padding=10)
         save_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        # Current position section
-        current_frame = ttk.LabelFrame(save_frame, text="From Current Position", padding=5)
+        current_frame = ttk.LabelFrame(save_frame, text="From Current", padding=5)
         current_frame.pack(fill=tk.X, pady=5)
         
         input_frame = ttk.Frame(current_frame)
         input_frame.pack(fill=tk.X)
         
-        ttk.Label(input_frame, text="Position Name:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(input_frame, text="Name:").pack(side=tk.LEFT, padx=5)
         self.pos_name_var = tk.StringVar()
         ttk.Entry(input_frame, textvariable=self.pos_name_var, width=20).pack(side=tk.LEFT, padx=5)
-        ttk.Button(input_frame, text="Save Current", command=self.save_current_position).pack(side=tk.LEFT, padx=5)
+        ttk.Button(input_frame, text="Save", command=self.save_current_position).pack(side=tk.LEFT, padx=5)
         
-        self.current_pos_label = ttk.Label(current_frame, text="Current: M0=0, M1=0", font=('Arial', 11))
+        self.current_pos_label = ttk.Label(current_frame, text="Current: M0=0, M1=0", font=('Arial', 10))
         self.current_pos_label.pack(anchor=tk.W, pady=5)
         
-        # Manual entry section
         manual_frame = ttk.LabelFrame(save_frame, text="Manual Entry", padding=5)
         manual_frame.pack(fill=tk.X, pady=5)
         
         m0_frame = ttk.Frame(manual_frame)
         m0_frame.pack(fill=tk.X, pady=3)
-        ttk.Label(m0_frame, text="Motor 0 Position:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(m0_frame, text="Motor 0:").pack(side=tk.LEFT, padx=5)
         self.manual_m0_var = tk.IntVar(value=0)
         ttk.Entry(m0_frame, textvariable=self.manual_m0_var, width=15).pack(side=tk.LEFT, padx=5)
         
         m1_frame = ttk.Frame(manual_frame)
         m1_frame.pack(fill=tk.X, pady=3)
-        ttk.Label(m1_frame, text="Motor 1 Position:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(m1_frame, text="Motor 1:").pack(side=tk.LEFT, padx=5)
         self.manual_m1_var = tk.IntVar(value=0)
         ttk.Entry(m1_frame, textvariable=self.manual_m1_var, width=15).pack(side=tk.LEFT, padx=5)
         
         manual_name_frame = ttk.Frame(manual_frame)
         manual_name_frame.pack(fill=tk.X, pady=3)
-        ttk.Label(manual_name_frame, text="Position Name:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(manual_name_frame, text="Name:").pack(side=tk.LEFT, padx=5)
         self.manual_pos_name_var = tk.StringVar()
         ttk.Entry(manual_name_frame, textvariable=self.manual_pos_name_var, width=20).pack(side=tk.LEFT, padx=5)
-        ttk.Button(manual_name_frame, text="Save Manual", command=self.save_manual_position).pack(side=tk.LEFT, padx=5)
+        ttk.Button(manual_name_frame, text="Save", command=self.save_manual_position).pack(side=tk.LEFT, padx=5)
 
     def save_manual_position(self):
         """Save manually entered position"""
@@ -456,9 +493,8 @@ class MotorControlGUI:
             messagebox.showerror("Error", "Please enter a position name")
             return
         
-        # Validate name
         if not name.replace('_', '').replace('-', '').isalnum():
-            messagebox.showerror("Error", "Position name can only contain letters, numbers, hyphens and underscores")
+            messagebox.showerror("Error", "Invalid position name")
             return
         
         try:
@@ -475,8 +511,8 @@ class MotorControlGUI:
             self.manual_m0_var.set(0)
             self.manual_m1_var.set(0)
             
-            self.log_console(f"✓ Saved manual position '{name}' → M0:{m0_pos:,}, M1:{m1_pos:,}", 'info')
-            messagebox.showinfo("Success", f"Position '{name}' saved successfully!")
+            self.log_console(f"Saved manual position '{name}' → M0:{m0_pos:,}, M1:{m1_pos:,}", 'info')
+            messagebox.showinfo("Success", f"Position '{name}' saved!")
         except Exception as e:
             logger.exception("Error saving manual position")
             messagebox.showerror("Error", f"Failed to save position:\n{str(e)}")
@@ -493,25 +529,25 @@ class MotorControlGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.position_tree = ttk.Treeview(tree_frame, columns=('Motor0', 'Motor1'), 
-                                          yscrollcommand=scrollbar.set)
+                                          yscrollcommand=scrollbar.set, height=10)
         scrollbar.config(command=self.position_tree.yview)
         
         self.position_tree.heading('#0', text='Name')
         self.position_tree.heading('Motor0', text='Motor 0')
         self.position_tree.heading('Motor1', text='Motor 1')
-        self.position_tree.column('#0', width=200)
-        self.position_tree.column('Motor0', width=100)
-        self.position_tree.column('Motor1', width=100)
+        self.position_tree.column('#0', width=150)
+        self.position_tree.column('Motor0', width=80)
+        self.position_tree.column('Motor1', width=80)
         self.position_tree.pack(fill=tk.BOTH, expand=True)
         self.position_tree.bind('<Double-Button-1>', self.on_position_double_click)
         
         button_frame = ttk.Frame(list_frame)
         button_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Button(button_frame, text="Go To", command=self.go_to_saved_position).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Delete", command=self.delete_position).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Export", command=self.export_positions).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Import", command=self.import_positions).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Go To", command=self.go_to_saved_position).pack(side=tk.LEFT, padx=3)
+        ttk.Button(button_frame, text="Delete", command=self.delete_position).pack(side=tk.LEFT, padx=3)
+        ttk.Button(button_frame, text="Export", command=self.export_positions).pack(side=tk.LEFT, padx=3)
+        ttk.Button(button_frame, text="Import", command=self.import_positions).pack(side=tk.LEFT, padx=3)
         
         self.refresh_position_list()
 
@@ -528,7 +564,7 @@ class MotorControlGUI:
         seq_list_frame = ttk.LabelFrame(parent, text="Sequences", padding=10)
         parent.add(seq_list_frame, weight=1)
         
-        self.sequence_tree = ttk.Treeview(seq_list_frame, columns=('Steps',), show='tree headings')
+        self.sequence_tree = ttk.Treeview(seq_list_frame, columns=('Steps',), show='tree headings', height=10)
         self.sequence_tree.heading('#0', text='Name')
         self.sequence_tree.heading('Steps', text='Steps')
         self.sequence_tree.pack(fill=tk.BOTH, expand=True)
@@ -536,8 +572,8 @@ class MotorControlGUI:
         
         seq_btn_frame = ttk.Frame(seq_list_frame)
         seq_btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(seq_btn_frame, text="▶ Run", command=self.run_sequence).pack(side=tk.LEFT, padx=2)
-        ttk.Button(seq_btn_frame, text="⏹ Stop", command=self.stop_sequence).pack(side=tk.LEFT, padx=2)
+        ttk.Button(seq_btn_frame, text="Run", command=self.run_sequence).pack(side=tk.LEFT, padx=2)
+        ttk.Button(seq_btn_frame, text="Stop", command=self.stop_sequence).pack(side=tk.LEFT, padx=2)
         ttk.Button(seq_btn_frame, text="Delete", command=self.delete_sequence).pack(side=tk.LEFT, padx=2)
         
         self.refresh_sequence_list()
@@ -554,51 +590,48 @@ class MotorControlGUI:
         steps_frame = ttk.LabelFrame(editor_frame, text="Steps", padding=5)
         steps_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        # Configure scrollbar for tree
         scrollbar = ttk.Scrollbar(steps_frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.sequence_steps_tree = ttk.Treeview(steps_frame, columns=('Position', 'Delay'), 
-                                               show='tree headings', height=8,
+                                               show='tree headings', height=6,
                                                yscrollcommand=scrollbar.set)
         scrollbar.config(command=self.sequence_steps_tree.yview)
         
-        # Configure column headings and widths
         self.sequence_steps_tree.heading('#0', text='#')
         self.sequence_steps_tree.heading('Position', text='Position Name')
         self.sequence_steps_tree.heading('Delay', text='Delay (s)')
         
         self.sequence_steps_tree.column('#0', width=30, anchor=tk.CENTER)
-        self.sequence_steps_tree.column('Position', width=200, anchor=tk.W)
-        self.sequence_steps_tree.column('Delay', width=80, anchor=tk.CENTER)
+        self.sequence_steps_tree.column('Position', width=150, anchor=tk.W)
+        self.sequence_steps_tree.column('Delay', width=60, anchor=tk.CENTER)
         
         self.sequence_steps_tree.pack(fill=tk.BOTH, expand=True)
         
         add_step_frame = ttk.Frame(editor_frame)
         add_step_frame.pack(fill=tk.X, pady=10)
         
-        ttk.Label(add_step_frame, text="Position:").pack(side=tk.LEFT, padx=(0, 5))
-        self.pos_to_add_combo = ttk.Combobox(add_step_frame, state='readonly', width=25)
+        ttk.Label(add_step_frame, text="Pos:").pack(side=tk.LEFT, padx=(0, 5))
+        self.pos_to_add_combo = ttk.Combobox(add_step_frame, state='readonly', width=20)
         self.pos_to_add_combo.pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Label(add_step_frame, text="Delay (s):").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(add_step_frame, text="Delay:").pack(side=tk.LEFT, padx=(0, 5))
         self.delay_var = tk.DoubleVar(value=1.0)
         ttk.Spinbox(add_step_frame, from_=0, to=60, increment=0.1, 
-                   textvariable=self.delay_var, width=8).pack(side=tk.LEFT, padx=(0, 10))
+                   textvariable=self.delay_var, width=6).pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Button(add_step_frame, text="Add Step", command=self.add_step_to_sequence).pack(side=tk.LEFT)
         
         editor_btn_frame = ttk.Frame(editor_frame)
         editor_btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(editor_btn_frame, text="Remove Step", command=self.remove_step_from_sequence).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(editor_btn_frame, text="Clear All", command=self.clear_sequence_steps).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(editor_btn_frame, text="Remove", command=self.remove_step_from_sequence).pack(side=tk.LEFT, padx=3)
+        ttk.Button(editor_btn_frame, text="Clear All", command=self.clear_sequence_steps).pack(side=tk.LEFT, padx=3)
         ttk.Button(editor_btn_frame, text="Save Sequence", command=self.save_new_sequence).pack(side=tk.RIGHT)
         
         self.update_pos_to_add_combo()
 
     def setup_debug_tab(self, parent):
         """Setup debug console tab"""
-        # Add console pause state
         if not hasattr(self, 'console_paused'):
             self.console_paused = False
         
@@ -615,7 +648,7 @@ class MotorControlGUI:
         button_frame = ttk.Frame(parent)
         button_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        self.pause_button = ttk.Button(button_frame, text="⏸ Pause Console", 
+        self.pause_button = ttk.Button(button_frame, text="Pause Console", 
                                     command=self.toggle_console_pause)
         self.pause_button.pack(side=tk.LEFT, padx=2)
         ttk.Button(button_frame, text="Clear", command=self.clear_console).pack(side=tk.LEFT, padx=2)
@@ -626,7 +659,7 @@ class MotorControlGUI:
         console_container = ttk.Frame(console_frame)
         console_container.pack(fill=tk.BOTH, expand=True)
         
-        self.console_text = tk.Text(console_container, height=25, width=80, 
+        self.console_text = tk.Text(console_container, height=20, width=80, 
                                 bg='black', fg='green', font=('Courier', 9), wrap=tk.WORD)
         self.console_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
@@ -669,7 +702,6 @@ class MotorControlGUI:
             self.conn_status.config(text="CONNECTED", style='Connected.TLabel')
             self.log_console(f"Connected to {port} at {BAUD_RATE} baud", 'info')
             
-            # Start background threads
             self.read_thread = threading.Thread(target=self.read_serial, daemon=True)
             self.read_thread.start()
             
@@ -679,7 +711,6 @@ class MotorControlGUI:
             self.parse_thread = threading.Thread(target=self.process_responses, daemon=True)
             self.parse_thread.start()
             
-            # Start auto-refresh if enabled
             if self.auto_refresh_var.get():
                 self.start_auto_refresh()
             
@@ -697,10 +728,8 @@ class MotorControlGUI:
         self.running = False
         self.stop_auto_refresh()
         
-        # Wait briefly for threads to finish
         time.sleep(0.3)
         
-        # Close serial port
         if self.serial_port and self.serial_port.is_open:
             try:
                 self.serial_port.close()
@@ -741,7 +770,6 @@ class MotorControlGUI:
         """Schedule next status update"""
         if self.auto_refresh_enabled and self.running:
             self.read_status()
-            # Schedule next update
             interval_ms = int(self.status_poll_interval * 1000)
             self.status_update_job = self.root.after(interval_ms, self.schedule_status_update)
 
@@ -753,7 +781,7 @@ class MotorControlGUI:
         self.read_status()
 
     def read_serial(self):
-        """Read serial data in background thread with improved error handling"""
+        """Read serial data in background thread"""
         buffer = ""
         consecutive_errors = 0
         max_consecutive_errors = 5
@@ -764,15 +792,13 @@ class MotorControlGUI:
                     if self.serial_port.in_waiting:
                         data = self.serial_port.read(self.serial_port.in_waiting).decode('ascii', errors='ignore')
                         buffer += data
-                        consecutive_errors = 0  # Reset error counter on success
+                        consecutive_errors = 0
                         
-                        # Process complete lines
                         while '\n' in buffer:
                             line, buffer = buffer.split('\n', 1)
                             line = line.strip()
                             if line:
                                 self.response_queue.put(line)
-                                # Capture lambda variables properly
                                 self.root.after(0, lambda l=line: self.log_console(f"RX: {l}", 'rx'))
                     else:
                         time.sleep(0.01)
@@ -782,15 +808,12 @@ class MotorControlGUI:
             except Exception as e:
                 consecutive_errors += 1
                 
-                # Only log error on first occurrence or every Nth occurrence to avoid spam
                 if consecutive_errors <= 1 or consecutive_errors % 10 == 0:
                     if self.running:
                         logger.exception(f"Read error (consecutive: {consecutive_errors})")
-                        # Capture exception in lambda default argument
                         error_msg = f"Read error: {str(e)}"
                         self.root.after(0, lambda msg=error_msg: self.log_console(msg, 'error'))
                 
-                # If too many consecutive errors, disconnect
                 if consecutive_errors >= max_consecutive_errors:
                     logger.critical(f"Too many consecutive read errors ({consecutive_errors}), disconnecting")
                     self.root.after(0, lambda: self.log_console("Serial connection lost - too many errors", 'error'))
@@ -822,7 +845,6 @@ class MotorControlGUI:
                         self.serial_port.write((command + '\n').encode())
                         self.root.after(0, lambda c=command: self.log_console(f"TX: {c}", 'tx'))
                     except Exception as write_err:
-                        # Capture exception for lambda closure
                         self.root.after(0, lambda e=write_err: self.log_console(f"Send error: {str(e)}", 'error'))
                         logger.exception("Write failed")
             except Empty:
@@ -830,7 +852,6 @@ class MotorControlGUI:
             except Exception as e:
                 if self.running:
                     logger.exception("Command queue error")
-                    # Capture exception in lambda default argument
                     self.root.after(0, lambda err=e: self.log_console(f"Command error: {str(err)}", 'error'))
 
     def send_command(self, command):
@@ -842,7 +863,7 @@ class MotorControlGUI:
             self.command_queue.put(command)
 
     def parse_response(self, data):
-        """Parse response from STM32 with error handling"""
+        """Parse response from STM32"""
         try:
             parts = data.split(',')
             
@@ -863,12 +884,9 @@ class MotorControlGUI:
                 self.root.after(0, lambda m=motor_id: self.update_motor_display(m))
                 
             elif parts[0] == "ERROR":
-                # ERROR format: ERROR,motor_id,error_type,description
-                # Handle both valid and malformed ERROR messages gracefully
                 try:
                     motor_id = int(parts[1]) if len(parts) > 1 else 0
                 except (ValueError, IndexError):
-                    # If motor_id is not a valid integer, log as system error
                     motor_id = 0
                     error_type = "PARSE_ERROR"
                     description = f"Malformed error: {','.join(parts[1:])}"
@@ -884,33 +902,29 @@ class MotorControlGUI:
                 self.root.after(0, lambda txt=error_text: self.log_console(txt, 'error'))
                 
             elif parts[0] in ["OK", "DEBUG", "SYSTEM"]:
-                # Info messages - already logged in RX
                 pass
             else:
                 logger.debug(f"Unhandled response: {data}")
                 
         except Exception as e:
-            # Capture error message before using in lambda to avoid scope issues
             error_message = f"Parse error: {str(e)}"
             logger.exception(f"Parse error on data '{data}'")
             self.root.after(0, lambda msg=error_message: self.log_console(msg, 'error'))
 
     def update_motor_display(self, motor_id):
-        """Update motor status display on all tabs - must be called from main thread"""
+        """Update motor status display"""
         state = self._get_motor_state(motor_id)
         position = state['position']
         is_moving = state['moving']
         has_error = state['error']
         status_reg = state['status_reg']
         
-        # Get all instances for this motor
         instances = self.motor0_instances if motor_id == 0 else self.motor1_instances
         
-        # Update every instance
         for instance in instances:
             instance['pos'].config(text=f"Position: {position:,}")
             instance['status'].config(text=f"Status: {'MOVING' if is_moving else 'IDLE'}")
-            instance['error'].config(text=f"Errors: {'⚠ YES' if has_error else '✓ None'}")
+            instance['error'].config(text=f"Errors: {'Yes' if has_error else 'None'}")
             instance['hex'].config(text=f"Register: 0x{status_reg:04X}")
             
             style = 'Moving.TLabel' if is_moving else 'TLabel'
@@ -923,7 +937,6 @@ class MotorControlGUI:
             
             self.update_status_bits(motor_id, status_reg, instance['bits'])
         
-        # Update current position label (status tab only)
         if hasattr(self, 'current_pos_label'):
             self.current_pos_label.config(
                 text=f"Current: M0={self._get_motor_state(0)['position']:,}, M1={self._get_motor_state(1)['position']:,}"
@@ -956,24 +969,19 @@ class MotorControlGUI:
                 canvas.itemconfig(indicator, fill=color)
 
     def log_console(self, message, tag='info'):
-        """Log message to console - thread-safe"""
-        # Check if console exists yet (it's created in debug tab setup)
+        """Log message to console"""
         if not hasattr(self, 'console_text'):
-            # Console not ready yet, just log to logger
             logger.info(message)
             return
         
-        # Skip logging if paused, unless it's a pause/resume message
         if self.console_paused and tag != 'info':
-            # For pause messages, still log them but check content
-            if not any(x in message for x in ['paused', 'resumed', 'resumed']):
+            if not any(x in message for x in ['paused', 'resumed']):
                 return
         
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
         self.console_text.insert(tk.END, f"[{timestamp}] {message}\n", tag)
         self.console_text.see(tk.END)
         
-        # Limit console size
         lines = int(self.console_text.index('end-1c').split('.')[0])
         if lines > 1000:
             self.console_text.delete('1.0', '100.0')
@@ -982,11 +990,11 @@ class MotorControlGUI:
         """Toggle console pause/resume"""
         self.console_paused = not self.console_paused
         if self.console_paused:
-            self.pause_button.config(text="▶ Resume Console")
-            self.log_console("⏸ Console paused - incoming messages will not be displayed", 'info')
+            self.pause_button.config(text="Resume Console")
+            self.log_console("Console paused - incoming messages will not be displayed", 'info')
         else:
-            self.pause_button.config(text="⏸ Pause Console")
-            self.log_console("▶ Console resumed - logging messages again", 'info')
+            self.pause_button.config(text="Pause Console")
+            self.log_console("Console resumed - logging messages again", 'info')
 
     def clear_console(self):
         """Clear console"""
@@ -1001,7 +1009,7 @@ class MotorControlGUI:
             self.cmd_var.set("")
 
     def read_status(self):
-        """Request status update with rate limiting"""
+        """Request status update"""
         now = time.time()
         if now - self.last_status_request > self.status_poll_interval:
             self.send_command("STATUS")
@@ -1024,7 +1032,7 @@ class MotorControlGUI:
         self.stop_sequence_flag.set()
         self.sequence_running = False
         self.send_command("STOP")
-        self.log_console("⚠⚠⚠ EMERGENCY STOP ACTIVATED ⚠⚠⚠", 'error')
+        self.log_console("EMERGENCY STOP ACTIVATED", 'error')
         messagebox.showwarning("Emergency Stop", "All motors stopped!")
 
     def jog_motor(self, motor_id, steps):
@@ -1077,20 +1085,20 @@ class MotorControlGUI:
             messagebox.showwarning("Not Connected", "Please connect to a device first")
             return
             
-        if messagebox.askyesno("Confirm Reset", "Reset position counters to zero?\n\nThis will not move the motors."):
+        if messagebox.askyesno("Confirm Reset", "Reset position counters to zero?"):
             self.send_command("RESET")
             time.sleep(0.1)
             self.read_status()
             self.log_console("Position counters reset", 'info')
 
     def _safe_go_to_position(self, pos_name):
-        """Safely go to named position with validation"""
+        """Safely go to named position"""
         if not self.running:
             messagebox.showwarning("Not Connected", "Please connect to a device first")
             return
             
         if pos_name not in self.saved_positions:
-            messagebox.showwarning("Not Found", f"Position '{pos_name}' not saved yet.\n\nSave it in the Position Management tab.")
+            messagebox.showwarning("Not Found", f"Position '{pos_name}' not saved yet.")
             return
         self.go_to_named_position(pos_name)
 
@@ -1116,9 +1124,8 @@ class MotorControlGUI:
             messagebox.showerror("Error", "Please enter a position name")
             return
         
-        # Validate name
         if not name.replace('_', '').replace('-', '').isalnum():
-            messagebox.showerror("Error", "Position name can only contain letters, numbers, hyphens and underscores")
+            messagebox.showerror("Error", "Invalid position name")
             return
         
         state0 = self._get_motor_state(0)
@@ -1131,8 +1138,8 @@ class MotorControlGUI:
         self.save_positions()
         self.refresh_position_list()
         self.pos_name_var.set("")
-        self.log_console(f"✓ Saved position '{name}' → M0:{state0['position']:,}, M1:{state1['position']:,}", 'info')
-        messagebox.showinfo("Success", f"Position '{name}' saved successfully!")
+        self.log_console(f"Saved position '{name}' → M0:{state0['position']:,}, M1:{state1['position']:,}", 'info')
+        messagebox.showinfo("Success", f"Position '{name}' saved!")
 
     def refresh_position_list(self):
         """Refresh position list display"""
@@ -1152,16 +1159,16 @@ class MotorControlGUI:
         for pos_name, label in self.matrix_coord_labels.items():
             if pos_name in self.saved_positions:
                 coords = self.saved_positions[pos_name]
-                label.config(text=f"({coords['motor0']:,}, {coords['motor1']:,})", foreground='green')
+                label.config(text=f"({coords['motor0']}, {coords['motor1']})", foreground='green')
             else:
-                label.config(text="(Not Set)", foreground='gray')
+                label.config(text="(N/A)", foreground='gray')
         
         if self.home_coord_label:
             if "Home" in self.saved_positions:
                 coords = self.saved_positions["Home"]
-                self.home_coord_label.config(text=f"({coords['motor0']:,}, {coords['motor1']:,})", foreground='green')
+                self.home_coord_label.config(text=f"({coords['motor0']}, {coords['motor1']})", foreground='green')
             else:
-                self.home_coord_label.config(text="(Not Set)", foreground='gray')
+                self.home_coord_label.config(text="(N/A)", foreground='gray')
 
     def go_to_saved_position(self):
         """Go to selected saved position"""
@@ -1227,7 +1234,6 @@ class MotorControlGUI:
                 with open(filename, 'r') as f:
                     imported = json.load(f)
                 
-                # Validate imported data
                 if not isinstance(imported, dict):
                     raise ValueError("Invalid file format")
                 
@@ -1299,7 +1305,6 @@ class MotorControlGUI:
         seq_name = self.sequence_tree.item(selection[0])['text']
         self.seq_name_var.set(seq_name)
         
-        # Clear and repopulate steps
         for item in self.sequence_steps_tree.get_children():
             self.sequence_steps_tree.delete(item)
         
@@ -1323,7 +1328,6 @@ class MotorControlGUI:
             messagebox.showwarning("Warning", "Please select a position")
             return
         
-        # Add with step number
         step_num = len(self.sequence_steps_tree.get_children()) + 1
         self.sequence_steps_tree.insert('', 'end', text=str(step_num), 
                                        values=(pos_name, f"{delay:.1f}"))
@@ -1352,9 +1356,8 @@ class MotorControlGUI:
             messagebox.showerror("Error", "Please enter a sequence name")
             return
         
-        # Validate name
         if not name.replace('_', '').replace('-', '').isalnum():
-            messagebox.showerror("Error", "Sequence name can only contain letters, numbers, hyphens and underscores")
+            messagebox.showerror("Error", "Invalid sequence name")
             return
         
         steps = []
@@ -1371,13 +1374,12 @@ class MotorControlGUI:
         self.save_sequences()
         self.refresh_sequence_list()
         
-        # Clear editor
         self.seq_name_var.set("")
         for item in self.sequence_steps_tree.get_children():
             self.sequence_steps_tree.delete(item)
         
-        self.log_console(f"✓ Sequence '{name}' saved with {len(steps)} steps", 'info')
-        messagebox.showinfo("Success", f"Sequence '{name}' saved successfully!")
+        self.log_console(f"Sequence '{name}' saved with {len(steps)} steps", 'info')
+        messagebox.showinfo("Success", f"Sequence '{name}' saved!")
 
     def delete_sequence(self):
         """Delete selected sequence"""
@@ -1409,7 +1411,7 @@ class MotorControlGUI:
             return
             
         if self.sequence_running:
-            messagebox.showwarning("Busy", "A sequence is already running.\nUse the Stop button to cancel it.")
+            messagebox.showwarning("Busy", "A sequence is already running.")
             return
         
         selection = self.sequence_tree.selection()
@@ -1424,11 +1426,10 @@ class MotorControlGUI:
             messagebox.showwarning("Warning", "Sequence has no steps")
             return
         
-        # Validate all positions exist
         missing = [s['pos_name'] for s in steps if s['pos_name'] not in self.saved_positions]
         if missing:
             messagebox.showerror("Error", 
-                f"Sequence contains undefined positions:\n{', '.join(missing)}\n\nPlease update the sequence.")
+                f"Sequence contains undefined positions:\n{', '.join(missing)}")
             return
         
         self.sequence_running = True
@@ -1438,12 +1439,12 @@ class MotorControlGUI:
 
     def _sequence_worker(self, name, steps):
         """Background worker to execute sequence"""
-        self.root.after(0, lambda: self.log_console(f"▶ Starting sequence '{name}' ({len(steps)} steps)...", 'info'))
+        self.root.after(0, lambda: self.log_console(f"Starting sequence '{name}' ({len(steps)} steps)...", 'info'))
         
         try:
             for i, step in enumerate(steps):
                 if self.stop_sequence_flag.is_set():
-                    self.root.after(0, lambda: self.log_console("⏹ Sequence stopped by user", 'error'))
+                    self.root.after(0, lambda: self.log_console("Sequence stopped by user", 'error'))
                     break
                 
                 pos_name = step['pos_name']
@@ -1454,14 +1455,12 @@ class MotorControlGUI:
                         self.log_console(f"Step {n+1}: Position '{p}' not found - skipping", 'error'))
                     continue
                 
-                # Move to position
                 self.root.after(0, lambda p=pos_name, n=i, t=len(steps): 
                     self.log_console(f"Step {n+1}/{t}: Moving to '{p}'...", 'info'))
                 self.go_to_named_position(pos_name)
                 
-                # Wait for motors to stop moving
-                time.sleep(0.2)  # Initial settling time
-                timeout = 60  # 30 second timeout
+                time.sleep(0.2)
+                timeout = 60
                 start_time = time.time()
                 
                 while (self._get_motor_state(0)['moving'] or self._get_motor_state(1)['moving']):
@@ -1471,15 +1470,13 @@ class MotorControlGUI:
                     time.sleep(SEQUENCE_POLL_INTERVAL)
                 
                 if self.stop_sequence_flag.is_set():
-                    self.root.after(0, lambda: self.log_console("⏹ Sequence stopped by user", 'error'))
+                    self.root.after(0, lambda: self.log_console("Sequence stopped by user", 'error'))
                     break
                 
-                # Delay before next step
-                if delay > 0 and i < len(steps) - 1:  # Don't delay after last step
+                if delay > 0 and i < len(steps) - 1:
                     self.root.after(0, lambda d=delay: 
                         self.log_console(f"Waiting {d} seconds...", 'info'))
                     
-                    # Break delay into smaller chunks to allow cancellation
                     delay_chunks = int(delay / 0.1)
                     for _ in range(delay_chunks):
                         if self.stop_sequence_flag.is_set():
@@ -1487,7 +1484,7 @@ class MotorControlGUI:
                         time.sleep(0.1)
             
             if not self.stop_sequence_flag.is_set():
-                self.root.after(0, lambda: self.log_console(f"✓ Sequence '{name}' completed successfully!", 'info'))
+                self.root.after(0, lambda: self.log_console(f"Sequence '{name}' completed!", 'info'))
                 self.root.after(0, lambda: messagebox.showinfo("Complete", f"Sequence '{name}' finished!"))
         
         except Exception as e:
